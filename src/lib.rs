@@ -99,6 +99,8 @@ sol_storage! {
         // Mapping of game nonces to game data
         // Each game is uniquely identified by its nonce
         mapping(uint256 => Game) games;
+
+        uint256 withdrawable_balance;
     }
 
     // Struct to store game data
@@ -157,7 +159,7 @@ impl Coinflip {
     #[payable]
     pub fn new_game(&mut self) -> Result<(), Error> {
         let bet = self.vm().msg_value();
-        let player = self.vm().msg_value();
+        let player = self.vm().msg_sender();
 
         // Check if the bet is greater than the minimum bet
         if bet < self.min_bet.get(){
@@ -171,17 +173,17 @@ impl Coinflip {
         let nonce = self.request_randomness()?;
 
         // Set the game data
-            let mut game_setter = self.games.setter(nonce);
-            game_setter.bet.set(bet);
-            game_setter.player.set(player);
-            game_setter.resolved.set(false);
-            game_setter.won.set(false);
-            game_setter.randomness.set(U256::ZERO);
+        let mut game_setter = self.games.setter(nonce);
+        game_setter.bet.set(bet);
+        game_setter.player.set(player);
+        game_setter.resolved.set(false);
+        game_setter.won.set(false);
+        game_setter.randomness.set(U256::ZERO);
 
-            // Log the game creation event
-            log(self.vm(), GameCreated { nonce, player, bet });
+        // Log the game creation event
+        log(self.vm(), GameCreated { nonce, player, bet });
 
-            Ok(())
+        Ok(())
     }
 
     // Callback function from Supra VRF, called when the randomness is fulfilled
@@ -189,15 +191,100 @@ impl Coinflip {
     pub fn fulfill_randomness(&mut self, nonce: U256, rng_list: Vec<U256>) -> Result<(), Error> {
         let sender = self.vm().msg_sender();
 
-            // If the caller is not the Supra router, return an error
-            if sender != self.supra_router.get() {
-                return Err(Error::OnlySupraRouter(OnlySupraRouter {}));
+        // If the caller is not the Supra router, return an error
+        if sender != self.supra_router.get() {
+            return Err(Error::OnlySupraRouter(OnlySupraRouter {}));
+        }
+
+        // Get the game data
+        let game = self.games.get(nonce);
+        let player = game.player.get();
+
+        // Check if the game exists and is not resolved
+        let bet = game.bet.get();
+        if player.is_zero() {
+            return Err(Error::GameNotFound(GameNotFound {}));
+        }
+        if game.resolved.get() {
+            return Err(Error::GameAlreadyResolved(GameAlreadyResolved {}));
+        }
+
+        // Get the random number from the returned response
+        let randomness = rng_list[0];
+        // 50-50 chance of winning based on whether the random number is even or odd
+        let player_won = randomness % U256::from(2) == U256::ZERO;
+
+        // Set the game data
+        let mut game_setter = self.games.setter(nonce);
+        game_setter.randomness.set(randomness);
+        game_setter.resolved.set(true);
+        game_setter.won.set(player_won);
+
+        // If the player won, send them the winnings
+        if player_won {
+            // Send the user 1.9x the bet
+            let winnings = bet * U256::from(19) / U256::from(10);
+            let transfer_result = self.vm().transfer_eth(player, winnings);
+            if transfer_result.is_err() {
+                return Err(Error::TransferFailed(TransferFailed {}));
             }
+
+            // Take the platform fee
+            let platform_fee = bet / U256::from(10);
+            self.withdrawable_balance.set(self.withdrawable_balance.get() + platform_fee);
+
+        }else{
+            // Take the bet back from the player
+            self.withdrawable_balance.set(self.withdrawable_balance.get() + bet);
+        }
+
+        // Log the game resolution event
+        log(
+            self.vm(),
+            GameResolved {
+                nonce,
+                player,
+                bet,
+                won: player_won,
+            },
+        );
+
+        Ok(())
     }
 
     // Withdraw funds from the contract
     pub fn withdraw(&mut self, amount: U256) -> Result<(), Error> {
-        todo!()
+        // Only callable by the owner of this contract
+        // This check will return an error if msg_sender() is not the owner
+        self.ownable.only_owner()?;
+
+        // Ensure that the owner is trying to withdraw ETH that the contract can actually afford
+        let balance = self.withdrawable_balance.get();
+        if balance < amount {
+            return Err(Error::InsufficientBalance(InsufficientBalance {
+                balance,
+                amount,
+            }));
+        }
+
+        self.withdrawable_balance.set(balance - amount);
+
+        // Transfer the funds to the owner
+        let transfer_result = self.vm().transfer_eth(self.vm().msg_sender(), amount);
+        if transfer_result.is_err() {
+            return Err(Error::TransferFailed(TransferFailed {}));
+        }
+
+        // Log the withdrawal event
+        log(
+            self.vm(),
+            Withdrawal {
+                to: self.vm().msg_sender(),
+                amount,
+            },
+        );
+
+        Ok(())
     }
 
     // Generic receive() function to allow the contract to receive ETH
