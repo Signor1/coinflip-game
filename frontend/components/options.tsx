@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 export function CoinOption({
   src,
   alt,
@@ -11,12 +13,11 @@ export function CoinOption({
 }) {
   return (
     <div
-      className={`rounded-lg p-4 border border-gray-200 hover:border-gray-300 transition-all duration-300 ${
-        active ? "bg-gray-100" : ""
-      }`}
+      className={`rounded-lg p-4 border border-gray-200 hover:border-gray-300 transition-all duration-300 ${active ? "bg-gray-100" : ""
+        }`}
       onClick={onClick}
     >
-      <img src={src} alt={alt} className="size-40" />
+      <Image src={src} alt={alt} width={160} height={160} className="size-40" />
     </div>
   );
 }
@@ -32,11 +33,10 @@ export function BetOption({
 }) {
   return (
     <button
-      className={`px-6 py-3 rounded-lg border transition-all duration-300 ${
-        active
+      className={`px-6 py-3 rounded-lg border transition-all duration-300 ${active
           ? "bg-blue-500 text-white border-blue-500"
           : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50 hover:border-gray-400"
-      }`}
+        }`}
       onClick={onClick}
     >
       {amount} ETH

@@ -1,4 +1,4 @@
-import { CoinflipAddress } from "@/lib/coinflip";
+import { CoinflipAddress } from "@/lib/conflip";
 import Link from "next/link";
 
 export function Footer() {

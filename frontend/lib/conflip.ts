@@ -1,4 +1,4 @@
-export const CoinflipAddress = "<YOUR_CONTRACT_ADDRESS>";
+export const CoinflipAddress = "0x1dc256b484e1783b43ae6ed9485d3fa8beaf51af";
 
 export const CoinflipABI = [
   { inputs: [], name: "GameAlreadyResolved", type: "error" },
