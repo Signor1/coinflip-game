@@ -8,7 +8,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 // Import Ownable contract from OpenZeppelin Stylus
-use openzeppelin_stylus::access::ownable::{self, Ownable};
+use openzeppelin_stylus::access::ownable::{self, Ownable, IOwnable};
 
 /// Import items from the SDK. The prelude contains common traits and macros.
 use stylus_sdk::{
@@ -56,11 +56,11 @@ sol! {
 // Rust types for the contract errors
 #[derive(SolidityError)]
 pub enum Error {
+    UnauthorizedAccount(ownable::OwnableUnauthorizedAccount),
+    InvalidOwner(ownable::OwnableInvalidOwner),
     GameNotFound(GameNotFound),
     MinBetNotMet(MinBetNotMet),
     RandomnessRequestFailed(RandomnessRequestFailed),
-    UnauthorizedAccount(ownable::OwnableUnauthorizedAccount),
-    InvalidOwner(ownable::OwnableInvalidOwner),
     OnlySupraRouter(OnlySupraRouter),
     GameAlreadyResolved(GameAlreadyResolved),
     TransferFailed(TransferFailed),
@@ -136,7 +136,7 @@ impl Coinflip {
 
 // Public functions on our contract
 #[public]
-#[inherit(Ownable)]
+#[implements(IOwnable<Error = Error>)]
 impl Coinflip {
     // Constructor for the contract, called when the contract is deployed
     #[constructor]
@@ -295,5 +295,25 @@ impl Coinflip {
     #[payable]
     pub fn receive(&mut self) -> Result<(), Vec<u8>> {
         Ok(())
+    }
+}
+
+#[public]
+impl IOwnable for Coinflip {
+    type Error = Error;
+
+    fn owner(&self) -> Address {
+        self.ownable.owner()
+    }
+
+    fn transfer_ownership(
+        &mut self,
+        new_owner: Address,
+    ) -> Result<(), Self::Error> {
+        Ok(self.ownable.transfer_ownership(new_owner)?)
+    }
+
+    fn renounce_ownership(&mut self) -> Result<(), Self::Error> {
+        Ok(self.ownable.renounce_ownership()?)
     }
 }
