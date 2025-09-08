@@ -115,7 +115,20 @@ sol_storage! {
 impl Coinflip {
     // Internal helper function to request randomness from Supra VRF
     fn request_randomness(&mut self) -> Result<U256, Error> {
-        todo!()
+        let subscription_manager = self.subscription_manager.get();
+        let router = ISupraRouterContract::from(self.supra_router.get());
+        let request_result = router.generate_request(
+            &mut *self,
+            String::from("fulfillRandomness(uint256,uint256[])"),
+            1,
+            U256::from(1),
+            subscription_manager,
+        );
+
+        match request_result {
+            Ok(nonce) => Ok(nonce),
+            Err(_) => Err(Error::RandomnessRequestFailed(RandomnessRequestFailed {})),
+        }
     }
 }
 
@@ -131,19 +144,55 @@ impl Coinflip {
         supra_router: Address,
         min_bet: U256,
     ) -> Result<(), Error> {
-        todo!()
+        let initial_owner = self.vm().tx_origin();
+
+        self.subscription_manager.set(subscription_manager);
+        self.supra_router.set(supra_router);
+        self.min_bet.set(min_bet);
+
+        Ok(self.ownable.constructor(initial_owner)?)
     }
 
     // Place a bet and start a new game
     #[payable]
     pub fn new_game(&mut self) -> Result<(), Error> {
-        todo!()
+        let bet = self.vm().msg_value();
+        let player = self.vm().msg_value();
+
+        // Check if the bet is greater than the minimum bet
+        if bet < self.min_bet.get(){
+            return Err(Error::MinBetNotMet(MinBetNotMet {
+                        min_bet: self.min_bet.get(),
+                        player_bet: bet,
+                    }));
+        }
+
+        // Request randomness from Supra VRF, and generate a new game nonce
+        let nonce = self.request_randomness()?;
+
+        // Set the game data
+            let mut game_setter = self.games.setter(nonce);
+            game_setter.bet.set(bet);
+            game_setter.player.set(player);
+            game_setter.resolved.set(false);
+            game_setter.won.set(false);
+            game_setter.randomness.set(U256::ZERO);
+
+            // Log the game creation event
+            log(self.vm(), GameCreated { nonce, player, bet });
+
+            Ok(())
     }
 
     // Callback function from Supra VRF, called when the randomness is fulfilled
     // This is not meant to be called by users
     pub fn fulfill_randomness(&mut self, nonce: U256, rng_list: Vec<U256>) -> Result<(), Error> {
-        todo!()
+        let sender = self.vm().msg_sender();
+
+            // If the caller is not the Supra router, return an error
+            if sender != self.supra_router.get() {
+                return Err(Error::OnlySupraRouter(OnlySupraRouter {}));
+            }
     }
 
     // Withdraw funds from the contract
